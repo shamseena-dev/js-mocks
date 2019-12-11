@@ -1,0 +1,63 @@
+image: registry.gitlab.com/improve-software-quality/node-10:latest
+
+stages:
+  - build
+  - code-quality
+  - test
+
+.default-cache: &default-cache
+  cache:
+    untracked: true
+    key: js-mocks-1.0.0
+    paths:
+      - node_modules/
+
+
+build:
+  <<: *default-cache
+  stage: build
+  script:
+    - yarn install
+
+code_quality:
+  <<: *default-cache
+  stage: code-quality
+  image: docker:stable
+  variables:
+    DOCKER_DRIVER: overlay2
+  allow_failure: true
+  services:
+    - docker:stable-dind
+  script:
+    - export SP_VERSION=$(echo "$CI_SERVER_VERSION" | sed 's/^\([0-9]*\)\.\([0-9]*\).*/\1-\2-stable/')
+    - docker run
+      --env SOURCE_CODE="$PWD"
+      --volume "$PWD":/code
+      --volume /var/run/docker.sock:/var/run/docker.sock
+      "registry.gitlab.com/gitlab-org/security-products/codequality:$SP_VERSION" /code
+  artifacts:
+    reports:
+      codequality: gl-code-quality-report.json
+    paths:
+      - gl-code-quality-report.json
+  except:
+    - tags
+
+eslint:
+  <<: *default-cache
+  stage: code-quality
+  allow_failure: true
+  artifacts:
+    when: always
+    paths:
+      - tmp/eslint.json
+  script:
+    - yarn install
+    - node_modules/eslint/bin/eslint.js test/ src/  -o tmp/eslint.json -f json
+
+test:
+  <<: *default-cache
+  stage: test
+  script:
+    - yarn install
+    - yarn test
